@@ -1,0 +1,470 @@
+// resto-huma — modelo de datos (DER: MODELO.MD, 25 entidades)
+// Montos: precios duales (precioArs Int + precioUsd Decimal(12,2)); finanzas en ARS entero (Int).
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Rol {
+  admin
+  mozo
+  cocina
+  cajero
+  repartidor
+}
+enum EstadoMesa {
+  libre
+  ocupada
+  cuenta_pedida
+}
+enum EstadoReserva {
+  pendiente
+  confirmada
+  cancelada
+  cumplida
+  no_show
+}
+enum TipoTurno {
+  almuerzo
+  cena
+}
+enum CategoriaProducto {
+  empanada
+  plato_regional
+  bebida
+  postre
+}
+enum TipoPromocion {
+  porcentaje
+  monto_fijo
+  precio_combo
+  nxm
+}
+enum TipoMovimientoStock {
+  descuento_pedido
+  reposicion_cancelacion
+  compra
+  ajuste_manual
+  anulacion
+}
+enum Canal {
+  presencial
+  virtual
+}
+enum Subtipo {
+  mesa
+  mostrador
+  takeaway
+  delivery
+}
+enum EstadoAtencion {
+  pendiente
+  confirmado
+  en_preparacion
+  listo
+  en_reparto
+  entregado
+  cancelado
+}
+enum EstadoPago {
+  pendiente_de_cobro
+  cobrado
+}
+enum Presentacion {
+  unidad
+  docena
+  media_docena
+}
+enum OrigenComanda {
+  mozo
+  sistema
+}
+enum EstadoComanda {
+  pendiente
+  en_preparacion
+  lista
+  anulada
+}
+enum TipoDescuento {
+  monto
+  porcentaje
+}
+enum MedioPago {
+  efectivo
+  debito
+  credito
+  transferencia
+  billetera_virtual
+}
+enum EstadoCaja {
+  abierta
+  cerrada
+}
+enum CategoriaEgreso {
+  compra_insumos
+  sueldos
+  servicios
+  alquiler
+  otros
+}
+
+model Usuario {
+  id        String  @id @default(cuid())
+  nombre    String
+  email     String  @unique
+  passwordHash String
+  rol       Rol
+  activo    Boolean @default(true)
+  createdAt DateTime @default(now())
+
+  refreshTokens RefreshToken[]
+  mozoMesaTurnos MozoMesaTurno[]
+  pedidos   Pedido[] @relation("mozo")
+  repartos  Pedido[] @relation("repartidor")
+  pagos     Pago[]
+  cajas     Caja[]
+  cierres   CierreCaja[]
+  egresos   Egreso[]
+  anulaciones Anulacion[]
+  movimientos MovimientoStock[]
+}
+
+model RefreshToken {
+  id         String  @id @default(cuid())
+  usuarioId  String
+  tokenHash  String  @unique
+  expiresAt  DateTime
+  revokedAt  DateTime? // null = vigente
+  usuario    Usuario @relation(fields: [usuarioId], references: [id])
+}
+
+model Cliente {
+  id        String   @id @default(cuid())
+  nombre    String
+  email     String   @unique
+  telefono  String?
+  googleId  String?  @unique
+  createdAt DateTime @default(now())
+
+  direcciones Direccion[]
+  reservas    Reserva[]
+  pedidos     Pedido[]
+}
+
+model Direccion {
+  id          String  @id @default(cuid())
+  clienteId   String
+  calle       String
+  ciudad      String
+  referencia  String?
+  esPrincipal Boolean @default(false)
+  cliente     Cliente? @relation(fields: [clienteId], references: [id])
+}
+
+model Mesa {
+  id       String     @id @default(cuid())
+  numero   Int        @unique
+  capacidad Int
+  zona     String?    // salón/patio/etc
+  estado   EstadoMesa @default(libre)
+
+  mozoMesaTurnos MozoMesaTurno[]
+  reservas       Reserva[]
+  pedidos        Pedido[]
+}
+
+model Reserva {
+  id              String        @id @default(cuid())
+  clienteId       String?
+  creadaPorId     String?
+  mesaId          String?
+  fechaHora       DateTime
+  cantidadPersonas Int
+  telefonoContacto String
+  estado          EstadoReserva @default(pendiente)
+  notas           String?
+
+  cliente Cliente? @relation(fields: [clienteId], references: [id])
+  mesa    Mesa?   @relation(fields: [mesaId], references: [id])
+  pedidos Pedido[]
+}
+
+model Turno {
+  id       String    @id @default(cuid())
+  tipo     TipoTurno
+  apertura DateTime
+  cierre   DateTime? // null = abierto
+
+  mozoMesaTurnos MozoMesaTurno[]
+  pedidos        Pedido[]
+  cajas          Caja[]
+}
+
+model MozoMesaTurno {
+  id        String  @id @default(cuid())
+  turnoId   String
+  usuarioId String
+  mesaId    String
+
+  turno   Turno   @relation(fields: [turnoId], references: [id])
+  usuario Usuario @relation(fields: [usuarioId], references: [id])
+  mesa    Mesa?   @relation(fields: [mesaId], references: [id])
+}
+
+model Producto {
+  id          String            @id @default(cuid())
+  nombre      String
+  categoria   CategoriaProducto
+  precioArs   Int               // pesos argentinos enteros
+  precioUsd   Decimal           @db.Decimal(12, 2)
+  disponible  Boolean           @default(true)
+  activo      Boolean           @default(true)
+
+  variedades  Variedad[]
+  items       ItemPedido[]
+  receta      RecetaItem[]
+  promociones PromocionProducto[]
+}
+
+model Variedad {
+  id         String   @id @default(cuid())
+  productoId String
+  nombre     String   // carne, humita, etc
+  precioArs  Int?     // null = usa precioArs del producto
+  precioUsd  Decimal? @db.Decimal(12, 2)
+  disponible Boolean  @default(true)
+
+  producto  Producto            @relation(fields: [productoId], references: [id])
+  items     ItemPedido[]
+  ajustes   RecetaItem[]
+  promociones PromocionProducto[]
+}
+
+model Insumo {
+  id           String  @id @default(cuid())
+  nombre       String
+  unidadMedida String  // kg, litro, unidad
+  stockActual  Decimal @db.Decimal(12, 3)
+  stockMinimo  Decimal @db.Decimal(12, 3)
+  costoUnitario Decimal @db.Decimal(12, 2)
+
+  receta      RecetaItem[]
+  movimientos MovimientoStock[]
+}
+
+model RecetaItem {
+  id         String   @id @default(cuid())
+  productoId String
+  variedadId String?  // null = insumo base del producto; set = ajuste por variedad (receta mixta)
+  insumoId   String
+  cantidad   Decimal  @db.Decimal(12, 4) // en unidadMedida del insumo, por unidad de producto
+
+  producto Producto @relation(fields: [productoId], references: [id])
+  variedad Variedad? @relation(fields: [variedadId], references: [id])
+  insumo   Insumo   @relation(fields: [insumoId], references: [id])
+}
+
+model MovimientoStock {
+  id        String   @id @default(cuid())
+  insumoId  String
+  pedidoId  String?
+  usuarioId String?
+  tipo      TipoMovimientoStock
+  cantidad  Decimal  @db.Decimal(12, 3) // negativo = salida
+  motivo    String?
+  createdAt DateTime @default(now())
+
+  insumo  Insumo   @relation(fields: [insumoId], references: [id])
+  pedido  Pedido?  @relation(fields: [pedidoId], references: [id])
+  usuario Usuario? @relation(fields: [usuarioId], references: [id])
+}
+
+model Promocion {
+  id        String        @id @default(cuid())
+  nombre    String
+  tipo      TipoPromocion
+  valor     Decimal       @db.Decimal(12, 2)
+  activa    Boolean       @default(true)
+  fechaInicio DateTime?
+  fechaFin    DateTime?
+
+  productos PromocionProducto[]
+  descuentos DescuentoAplicado[]
+}
+
+model PromocionProducto {
+  id          String  @id @default(cuid())
+  promocionId String
+  productoId  String
+  variedadId  String?
+
+  promocion Promocion @relation(fields: [promocionId], references: [id])
+  producto  Producto  @relation(fields: [productoId], references: [id])
+  variedad  Variedad? @relation(fields: [variedadId], references: [id])
+}
+
+model Pedido {
+  id          String  @id @default(cuid())
+  turnoId     String
+  mesaId      String? // null = mostrador/virtual
+  clienteId   String?
+  mozoId      String? // usuario que toma el pedido
+  repartidorId String? // usuario que reparte
+  reservaId   String?
+
+  canal       Canal
+  subtipo     Subtipo
+  estadoAtencion EstadoAtencion @default(pendiente)
+  estadoPago  EstadoPago @default(pendiente_de_cobro)
+  direccionSnapshot String? // delivery: copia de la dirección al momento del pedido
+  costoEnvioArs Int @default(0)
+  motivoCancelacion String?
+  createdAt   DateTime @default(now())
+  confirmadoAt DateTime?
+  listoAt     DateTime?
+  entregadoAt DateTime?
+
+  turno       Turno     @relation(fields: [turnoId], references: [id])
+  mesa        Mesa?     @relation(fields: [mesaId], references: [id])
+  cliente     Cliente?  @relation(fields: [clienteId], references: [id])
+  mozo        Usuario?  @relation("mozo", fields: [mozoId], references: [id])
+  repartidor  Usuario?  @relation("repartidor", fields: [repartidorId], references: [id])
+  reserva     Reserva?  @relation(fields: [reservaId], references: [id])
+
+  items       ItemPedido[]
+  comandas    Comanda[]
+  movimientos MovimientoStock[]
+  descuentos  DescuentoAplicado[]
+  pagos       Pago[]
+  anulaciones Anulacion[]
+}
+
+model ItemPedido {
+  id             String      @id @default(cuid())
+  pedidoId       String
+  comandaId      String?
+  productoId     String
+  variedadId     String?
+  cantidad       Int
+  presentacion   Presentacion @default(unidad) // principalmente empanadas
+  notas          String?     // sin cebolla, bien cocida
+  precioUnitarioArs Int      // snapshot al momento del pedido
+  precioUnitarioUsd Decimal  @db.Decimal(12, 2)
+  subtotalArs    Int
+
+  pedido    Pedido   @relation(fields: [pedidoId], references: [id])
+  comanda   Comanda? @relation(fields: [comandaId], references: [id])
+  producto  Producto @relation(fields: [productoId], references: [id])
+  variedad  Variedad? @relation(fields: [variedadId], references: [id])
+  descuentos DescuentoAplicado[]
+}
+
+model Comanda {
+  id             String        @id @default(cuid())
+  pedidoId       String
+  confirmadaPorId String?
+  origen         OrigenComanda
+  estado         EstadoComanda @default(pendiente)
+  notas          String?
+  createdAt      DateTime      @default(now())
+
+  pedido Pedido      @relation(fields: [pedidoId], references: [id])
+  items  ItemPedido[]
+}
+
+model DescuentoAplicado {
+  id           String      @id @default(cuid())
+  pedidoId     String?
+  itemPedidoId String?
+  promocionId  String?
+  aplicadoPorId String?
+  tipo         TipoDescuento
+  valor        Decimal     @db.Decimal(12, 2)
+  motivo       String?
+
+  pedido      Pedido?     @relation(fields: [pedidoId], references: [id])
+  item        ItemPedido? @relation(fields: [itemPedidoId], references: [id])
+  promocion   Promocion?  @relation(fields: [promocionId], references: [id])
+}
+
+model Pago {
+  id               String    @id @default(cuid())
+  pedidoId         String
+  cajaId           String
+  registradoPorId  String
+  montoArs         Int       // ARS entero
+  medioPago        MedioPago
+  propinaArs       Int       @default(0)
+  referenciaExterna String?  // id transacción del servicio de pagos externo
+  createdAt        DateTime  @default(now())
+
+  pedido       Pedido     @relation(fields: [pedidoId], references: [id])
+  caja         Caja       @relation(fields: [cajaId], references: [id])
+  registradoPor Usuario   @relation(fields: [registradoPorId], references: [id])
+  anulaciones  Anulacion[]
+}
+
+model Caja {
+  id            String   @id @default(cuid())
+  turnoId       String
+  abiertaPorId  String
+  montoInicialArs Int
+  estado        EstadoCaja @default(abierta)
+  apertura      DateTime @default(now())
+
+  turno         Turno      @relation(fields: [turnoId], references: [id])
+  abiertaPor    Usuario    @relation(fields: [abiertaPorId], references: [id])
+  pagos         Pago[]
+  egresos       Egreso[]
+  cierre        CierreCaja?
+}
+
+model CierreCaja {
+  id                String   @id @default(cuid())
+  cajaId            String   @unique
+  cerradoPorId      String
+  ingresosEsperadosArs Int
+  egresosEsperadosArs  Int
+  dineroFisicoArs      Int
+  diferenciaArs        Int
+  createdAt         DateTime @default(now())
+
+  caja          Caja    @relation(fields: [cajaId], references: [id])
+  cerradoPor    Usuario @relation(fields: [cerradoPorId], references: [id])
+}
+
+model Egreso {
+  id         String          @id @default(cuid())
+  cajaId     String
+  usuarioId  String
+  categoria  CategoriaEgreso
+  montoArs   Int
+  descripcion String
+  createdAt  DateTime @default(now())
+
+  caja    Caja    @relation(fields: [cajaId], references: [id])
+  usuario Usuario @relation(fields: [usuarioId], references: [id])
+}
+
+model Anulacion {
+  id          String   @id @default(cuid())
+  pagoId      String?
+  pedidoId    String?
+  usuarioId   String
+  motivo      String
+  reponeStock Boolean  @default(true)
+  createdAt   DateTime @default(now())
+
+  pago    Pago?   @relation(fields: [pagoId], references: [id])
+  pedido  Pedido? @relation(fields: [pedidoId], references: [id])
+  usuario Usuario @relation(fields: [usuarioId], references: [id])
+}
+
+model Configuracion {
+  clave String @id // ej: canal_virtual.pago_online_habilitado
+  valor String
+}
